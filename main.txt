@@ -1,1 +1,2 @@
+cd "c:\Users\PC\Desktop\NiconicoComment"
 g++ main.cpp -o main -lws2_32 -lgdiplus -lgdi32 -mwindows
