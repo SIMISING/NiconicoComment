@@ -17,7 +17,6 @@
 
 using namespace Gdiplus;
 
-// --- Data Structures ---
 struct Comment {
     std::wstring text;
     float x;
@@ -26,7 +25,6 @@ struct Comment {
     COLORREF color;
 };
 
-// --- Global Variables ---
 HINSTANCE g_hInstance = NULL;
 HWND g_hHostJoinWnd = NULL;
 HWND g_hOverlayWnd = NULL;
@@ -44,13 +42,10 @@ SOCKET g_socket = INVALID_SOCKET;
 bool g_isServer = false;
 std::vector<SOCKET> g_clients;
 
-// Client Viewer Display Settings (Local viewer configuration)
 float g_commentFontSize = 28.0f;
 float g_commentBaseSpeed = 3.0f;
 
-// --- Helper Functions ---
 void DisconnectAndReturnToHostJoinUI() {
-    // 1. Close active network connections
     if (g_isServer) {
         for (SOCKET client : g_clients) {
             closesocket(client);
@@ -63,29 +58,25 @@ void DisconnectAndReturnToHostJoinUI() {
     }
     WSACleanup();
 
-    // 2. Clear comments
     {
         std::lock_guard<std::mutex> lock(g_commentMutex);
         g_comments.clear();
     }
 
-    // 3. UI State Transition
     ShowWindow(g_hChatWnd, SW_HIDE);
     ShowWindow(g_hOverlayWnd, SW_HIDE);
     ShowWindow(g_hHostJoinWnd, SW_SHOW);
 }
 
-// --- Subclassing for Enter Key in Edit Control ---
 WNDPROC g_oldEditProc = NULL;
 LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     if (uMsg == WM_KEYDOWN && wParam == VK_RETURN) {
-        SendMessage(GetParent(hwnd), WM_COMMAND, 201, 0); // Send command to Chat Window
+        SendMessage(GetParent(hwnd), WM_COMMAND, 201, 0);
         return 0;
     }
     return CallWindowProc(g_oldEditProc, hwnd, uMsg, wParam, lParam);
 }
 
-// --- Network Communication ---
 void SendNetworkMessage(const std::wstring& msg) {
     if (msg.empty()) return;
 
@@ -104,7 +95,6 @@ void SendNetworkMessage(const std::wstring& msg) {
         send(g_socket, utf8Msg.c_str(), (int)utf8Msg.size(), 0);
     }
 
-    // Render locally based on LOCAL viewer settings
     std::lock_guard<std::mutex> lock(g_commentMutex);
     RECT rect;
     GetClientRect(g_hOverlayWnd, &rect);
@@ -128,7 +118,7 @@ void ListenThread() {
             FD_ZERO(&readfds);
             for (SOCKET s : g_clients) FD_SET(s, &readfds);
             
-            timeval timeout = { 1, 0 }; // 1 sec timeout for clean exit check
+            timeval timeout = { 1, 0 };
             if (select(0, &readfds, NULL, NULL, &timeout) > 0) {
                 for (size_t i = 0; i < g_clients.size(); ++i) {
                     if (FD_ISSET(g_clients[i], &readfds)) {
@@ -164,13 +154,12 @@ void ListenThread() {
                 Comment c = { wbuf, (float)rect.right, (float)(rand() % (rect.bottom - 150) + 30), g_commentBaseSpeed + (rand() % 20) / 10.0f, RGB(255, 255, 255) };
                 g_comments.push_back(c);
             } else {
-                break; // Disconnected
+                break;
             }
         }
     }
 }
 
-// --- Settings Dialog Window Procedure ---
 HWND g_hFontSizeEdit = NULL, g_hSpeedEdit = NULL;
 LRESULT CALLBACK SettingsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
@@ -186,7 +175,7 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
         return 0;
     }
     case WM_COMMAND: {
-        if (LOWORD(wParam) == 301) { // Save
+        if (LOWORD(wParam) == 301) {
             wchar_t sizeBuf[16], speedBuf[16];
             GetWindowText(g_hFontSizeEdit, sizeBuf, 16);
             GetWindowText(g_hSpeedEdit, speedBuf, 16);
@@ -194,12 +183,11 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
             float sizeVal = (float)_wtof(sizeBuf);
             float speedVal = (float)_wtof(speedBuf);
 
-            // Bounds limit to prevent extreme UI bugs locally
             if (sizeVal >= 10.0f && sizeVal <= 100.0f) g_commentFontSize = sizeVal;
             if (speedVal >= 1.0f && speedVal <= 20.0f) g_commentBaseSpeed = speedVal;
 
             ShowWindow(hwnd, SW_HIDE);
-        } else if (LOWORD(wParam) == 302) { // Cancel
+        } else if (LOWORD(wParam) == 302) {
             ShowWindow(hwnd, SW_HIDE);
         }
         return 0;
@@ -224,7 +212,6 @@ void OpenSettingsWindow(HWND hParent) {
             CW_USEDEFAULT, CW_USEDEFAULT, 260, 170, hParent, NULL, g_hInstance, NULL);
     }
     
-    // Refresh Edit fields with current local settings
     SetWindowText(g_hFontSizeEdit, std::to_wstring((int)g_commentFontSize).c_str());
     SetWindowText(g_hSpeedEdit, std::to_wstring((int)g_commentBaseSpeed).c_str());
 
@@ -232,7 +219,6 @@ void OpenSettingsWindow(HWND hParent) {
     SetFocus(g_hSettingsWnd);
 }
 
-// --- Chat Input Window Procedure ---
 LRESULT CALLBACK ChatProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
     case WM_CREATE: {
@@ -247,12 +233,11 @@ LRESULT CALLBACK ChatProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
         CreateWindowEx(0, L"BUTTON", L"Exit", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
             445, 10, 45, 25, hwnd, (HMENU)203, g_hInstance, NULL);
 
-        // Subclass edit control to catch Enter key
         g_oldEditProc = (WNDPROC)SetWindowLongPtr(g_hChatEdit, GWLP_WNDPROC, (LONG_PTR)EditSubclassProc);
         return 0;
     }
     case WM_COMMAND: {
-        if (LOWORD(wParam) == 201) { // Send
+        if (LOWORD(wParam) == 201) {
             wchar_t buf[256];
             GetWindowText(g_hChatEdit, buf, 256);
             if (wcslen(buf) > 0) {
@@ -260,11 +245,11 @@ LRESULT CALLBACK ChatProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
                 SetWindowText(g_hChatEdit, L"");
             }
             SetFocus(g_hChatEdit);
-        } else if (LOWORD(wParam) == 202) { // Settings
+        } else if (LOWORD(wParam) == 202) {
             OpenSettingsWindow(hwnd);
-        } else if (LOWORD(wParam) == 204) { // Disconnect -> Return to Server Setup UI
+        } else if (LOWORD(wParam) == 204) {
             DisconnectAndReturnToHostJoinUI();
-        } else if (LOWORD(wParam) == 203) { // Exit
+        } else if (LOWORD(wParam) == 203) {
             PostQuitMessage(0);
         }
         return 0;
@@ -276,11 +261,10 @@ LRESULT CALLBACK ChatProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
-// --- Overlay Window Procedure ---
 LRESULT CALLBACK OverlayProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
     case WM_CREATE: {
-        SetTimer(hwnd, 1, 16, NULL); // ~60 FPS
+        SetTimer(hwnd, 1, 16, NULL);
         return 0;
     }
     case WM_TIMER: {
@@ -350,7 +334,6 @@ LRESULT CALLBACK OverlayProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
-// --- Main Connection Window Procedure ---
 LRESULT CALLBACK HostJoinProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
     case WM_CREATE: {
@@ -363,7 +346,6 @@ LRESULT CALLBACK HostJoinProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
         CreateWindow(L"BUTTON", L"Open Server (Host)", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 20, 85, 250, 30, hwnd, (HMENU)1, g_hInstance, NULL);
         CreateWindow(L"BUTTON", L"Connect (Join)", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 20, 120, 250, 30, hwnd, (HMENU)2, g_hInstance, NULL);
 
-        // Settings & Exit Buttons for Connection Window
         CreateWindow(L"BUTTON", L"Settings", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 20, 160, 120, 25, hwnd, (HMENU)3, g_hInstance, NULL);
         CreateWindow(L"BUTTON", L"Exit", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 150, 160, 120, 25, hwnd, (HMENU)4, g_hInstance, NULL);
         return 0;
@@ -381,7 +363,7 @@ LRESULT CALLBACK HostJoinProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
             WSADATA wsa;
             WSAStartup(MAKEWORD(2, 2), &wsa);
 
-            if (LOWORD(wParam) == 1) { // Host
+            if (LOWORD(wParam) == 1) {
                 g_isServer = true;
                 SOCKET serverSock = socket(AF_INET, SOCK_STREAM, 0);
                 sockaddr_in addr = { 0 };
@@ -400,7 +382,7 @@ LRESULT CALLBACK HostJoinProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
                         }
                     }
                 }).detach();
-            } else { // Join
+            } else {
                 g_isServer = false;
                 g_socket = socket(AF_INET, SOCK_STREAM, 0);
                 sockaddr_in addr = { 0 };
@@ -420,9 +402,9 @@ LRESULT CALLBACK HostJoinProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
             ShowWindow(g_hOverlayWnd, SW_SHOWMAXIMIZED);
             ShowWindow(g_hChatWnd, SW_SHOW);
             SetFocus(g_hChatEdit);
-        } else if (LOWORD(wParam) == 3) { // Settings
+        } else if (LOWORD(wParam) == 3) {
             OpenSettingsWindow(hwnd);
-        } else if (LOWORD(wParam) == 4) { // Exit
+        } else if (LOWORD(wParam) == 4) {
             PostQuitMessage(0);
         }
         return 0;
@@ -434,14 +416,12 @@ LRESULT CALLBACK HostJoinProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
-// --- WinMain ---
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
     g_hInstance = hInstance;
 
     GdiplusStartupInput gdiplusStartupInput;
     GdiplusStartup(&g_gdiplusToken, &gdiplusStartupInput, NULL);
 
-    // 1. Connection Window Class
     WNDCLASS wc1 = { 0 };
     wc1.lpfnWndProc = HostJoinProc;
     wc1.hInstance = hInstance;
@@ -452,7 +432,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
     g_hHostJoinWnd = CreateWindow(L"HostJoinClass", L"NiconicoComment - Connect", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
         CW_USEDEFAULT, CW_USEDEFAULT, 310, 235, NULL, NULL, hInstance, NULL);
 
-    // 2. Overlay Window Class
     WNDCLASS wc2 = { 0 };
     wc2.lpfnWndProc = OverlayProc;
     wc2.hInstance = hInstance;
@@ -466,7 +445,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
         NULL, NULL, hInstance, NULL
     );
 
-    // 3. Chat Input Window Class
     WNDCLASS wc3 = { 0 };
     wc3.lpfnWndProc = ChatProc;
     wc3.hInstance = hInstance;
@@ -490,3 +468,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
     GdiplusShutdown(g_gdiplusToken);
     return 0;
 }
+
+
+
+
+
